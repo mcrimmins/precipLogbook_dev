@@ -1,6 +1,13 @@
 # Cumulative precip chart generator
 # borrowing code from SPI Tool
 # 6/8/16
+# DEVELOPMENT VERSION TO MESS AROUND WITH!!!
+
+# To do --
+# - add percent average for DTP
+# - use to forecast outcomes? like in proposal
+# - incorporate NDVI data?
+
 
 # --- add in libraries, need all of them? -----
 library(RCurl)
@@ -17,6 +24,8 @@ library(xtable)
 library(geosphere)
 library(stringr)
 library(httr)
+library(plotly)
+library(RColorBrewer)
 
 # initial point for marker ----
 latIn<-32
@@ -240,7 +249,36 @@ ui<-tagList(
                                                }"))
                         )
                           )
-                          )
+                          ),
+             
+             tabPanel("Explore the Data",
+                      sidebarLayout(
+                        sidebarPanel(
+                          h4("Explore the daily precipitation data used to create the logbook"),
+                          p("The top chart displays the cumulative daily precipitation for the 
+                          time period specified on the 'Generate Logbook' page for each year from 1981 to present.
+                          You can use your cursor to hover over the time series lines to see actual values in each year
+                          and can click on years on the legend to highlight or hide selections"),
+                          p("The bottom chart shows the distribution of seasonal total precipitation for the selected
+                            time period. Years are organized into 1 inch bins and stacked from lowest to highest values
+                            in each bin. Use your cursor to see the year and precipitation value
+                            associated with each dot."),
+                          hr(),
+                          p()
+                          #p("Selected location"),
+                          #verbatimTextOutput("latSel"),
+                          #verbatimTextOutput("lonSel")
+                          #p("Center of data grid cell:")
+                          #div(img(src="cals.jpg",height="50",width="121"))
+                        ),
+                        mainPanel(
+                          plotlyOutput("allPrecipChart", width = "809", height = "500"),
+                          p(),
+                          plotlyOutput("dotplotChart", width = "809", height = "500")
+                                  )
+                                  )
+                      )
+             
              
                           )
                           )
@@ -275,7 +313,9 @@ server <- function(input, output, session) {
                    lat=input$MyMap_click$lat # input from map
                    lon=input$MyMap_click$lng # input from map
                    #download daily PRISM -----
-                   jsonQuery=paste0('{"loc":"',lon,',',lat,'","sdate":"1981-01-01","edate":"2018-12-31","grid":"21",
+                   #endDate<-"2020-12-31"
+                   endDate<-paste0(as.numeric(format(Sys.Date(),"%Y"))+1,"-12-31")
+                   jsonQuery=paste0('{"loc":"',lon,',',lat,'","sdate":"1981-01-01","edate":"',endDate,'","grid":"21",
                                     "meta":"ll,elev","elems":[{"name":"pcpn","interval":"dly"}]}')
                    
                    outDaily<-postForm("http://data.rcc-acis.org/GridData",.opts = list(postfields = jsonQuery, 
@@ -346,8 +386,8 @@ server <- function(input, output, session) {
     # using simple annual monthly to daily totals ratio (adjustments are not by month)
     sumYrDly<-dataDaily %>% group_by(year) %>% summarize(sumYr=sum(precip))
     sumYrMthly<-dataMonthly %>% group_by(year) %>% summarize(sumYr=sum(precip))
-    corrFactor<-mean(sumYrMthly$sumYr)/mean(sumYrDly$sumYr)
-    dataDaily$precip<-dataDaily$precip*corrFactor
+    corrFactor<-mean(sumYrMthly$sumYr, na.rm = T)/mean(sumYrDly$sumYr, na.rm = T)
+    dataDaily$precip<-dataDaily$precip*corrFactor  # TURN THIS OFF?
     
     # generate chart ----
     observeEvent(input$refreshChart,{
@@ -356,6 +396,9 @@ server <- function(input, output, session) {
       month=as.integer(input$firstMonth)
       day=as.integer(input$firstDay)
       tempDaily<-dataDaily
+      
+      #tempDaily<-filter(tempDaily, month!=2 | day!=29)
+      
       # trim first and last ajd year
       firstDate<-as.Date(paste(month,day,min(tempDaily$year)), format="%m %d %Y")
       lastDate<-as.Date(paste(month,day,max(tempDaily$year)), format="%m %d %Y")
@@ -368,28 +411,31 @@ server <- function(input, output, session) {
       monthEnd=as.numeric(format(lastChartDate, "%m"))
       dayEnd=as.numeric(format(lastChartDate, "%d"))
       
-      # create adj date sequence
-      adjDates<-seq(as.Date(paste(1,1,min(tempDaily$year)+1), format="%m %d %Y"),by='days', length.out = nrow(tempDaily))
+      # create adj date sequence -- create date seq with current years, then add 1 to match length
+      adjDates<-seq(as.Date(paste(1,1,min(tempDaily$year)+1), format="%m %d %Y"),by='days', length.out = nrow(tempDaily)) # nrows causes length diff
       adjDateMo<-as.numeric(format(adjDates, "%m"))
       adjDateDay<-as.numeric(format(adjDates, "%d"))
       adjDates<-as.data.frame(adjDates)
       adjDates<-cbind(adjDates,adjDateMo,adjDateDay)
-      adjDates<-filter(adjDates, adjDateMo!=2 | adjDateDay!=29) # remove leap days
+      #adjDates<-filter(adjDates, adjDateMo!=2 | adjDateDay!=29) # remove leap days
       adjDates$adjYear<-as.numeric(format(adjDates$adjDates, "%Y"))
       # add day of year, days; negates leap years
       adjDates$doy<-as.numeric((as.Date(paste(adjDates$adjDateMo,adjDates$adjDateDay,"1999"),
                                         format="%m %d %Y")-as.Date(paste("1","1","1999"), format="%m %d %Y"))+1)
       
       # remove leap year days from temp df
-      tempDaily<-filter(tempDaily, month!=2 | day!=29) # remove leap days
+      #tempDaily<-filter(tempDaily, month!=2 | day!=29) # remove leap days
       # add adjusted doy and year back in...
       tempDaily$doy<-adjDates$doy
       tempDaily$adjYear<-adjDates$adjYear
+      #tempDaily<-filter(tempDaily, month!=2 | day!=29) # remove leap days
+      #tempDaily<-filter(tempDaily, month!=3 | day!=1) # remove leap days
+      # replace NA with day 
       
       # cumulative totals using dplyr
       cumPrecip <- tempDaily %>% 
         group_by(adjYear, doy) %>% # still doesn't quite work adjYear kicks off before adjDOY
-        summarise(value = sum(precip)) %>%
+        summarise(value = sum(precip, na.rm = T)) %>%
         mutate(csum = cumsum(value))
       tempDaily$cumPrecip<-cumPrecip$csum
       
@@ -414,19 +460,25 @@ server <- function(input, output, session) {
                        q98 = quantile(cumPrecip,0.98,type=7,na.rm='TRUE'))
       #avg = mean(cumPrecip,na.rm='TRUE'))
       
+      # drop day 366 if it exists
+      dayQuant<-dayQuant[complete.cases(dayQuant), ]
+      
       dayQuant$date<-as.POSIXct(seq(as.Date(paste(month,day,1999), format="%m %d %Y"),by='days', length.out = 365)+1)
       endDate<-as.POSIXct(as.Date(paste(monthEnd,dayEnd,1999), format="%m %d %Y")+1)
       
-      # hold on to original dayQuant vals
-      dayQuantTemp<-dayQuant
+      # SMOOTHING -----
+      # # hold on to original dayQuant vals
+      # dayQuantTemp<-dayQuant
+      # 
+      # # # # # apply smoothing, uses caTools
+      # for(i in 2:6){
+      #   dayQuant[,i]<-runmean(dayQuant[,i], 15, align = "center", endrule = "mean") # window width, set at 60
+      # }
+      # 
+      # # replace first smoothed value with original
+      # dayQuant[1,]<-dayQuantTemp[1,]
+      # END SMOOTHING ----
       
-      # # # # apply smoothing, uses caTools
-      for(i in 2:6){
-        dayQuant[,i]<-runmean(dayQuant[,i], 15, align = "center", endrule = "mean") # window width, set at 60
-      }
-      
-      # replace first smoothed value with original
-      dayQuant[1,]<-dayQuantTemp[1,]
       
       # # alternate smoothing alg - loess
       # for(i in 2:6){
@@ -481,6 +533,93 @@ server <- function(input, output, session) {
         
       })
       
+      # set cumPrecip to NAs
+      tempDaily$cumPrecip <- ifelse(is.na(tempDaily$precip), NA, tempDaily$cumPrecip)
+      # NEW add in plotly of all years ###############
+      tempDailyLong<-melt(tempDaily, id.vars = c("year","date","doy"), measure.vars = 8)
+      
+      # add in generic date
+      tempDailyLong$datePlot<-format(as.Date(paste0("2000-",format(tempDailyLong$date, "%m-%d"))),"%b-%d")
+      # filter out >days
+      tempDailyLong<-subset(tempDailyLong, doy<=days)
+      tempDailyLong$value<-round(tempDailyLong$value,2)
+
+      # correct years to fit 365 days
+          wtr_yr <- function(dates, start_month) {
+            # Convert possible character vector into date
+            d1 = as.Date(dates)
+            # Year offset
+            offset = ifelse(as.integer(format(d1, "%m")) < start_month, 0, 1)
+            # Water year
+            adj.year = as.integer(format(d1, "%Y")) + offset
+            # Return the water year
+            return(adj.year)
+          }
+      tempDailyLong$adjYear<-as.factor(wtr_yr(tempDailyLong$date,month)-1)
+      # adjust col names
+      colnames(tempDailyLong)<-c("origYear","date","doy","var","Precip","Day","Year")
+
+      # color ramp
+      colourCount = length(unique(tempDailyLong$Year))
+      getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+
+      output$allPrecipChart<-renderPlotly({
+        p<-ggplot(tempDailyLong, aes(doy,Precip,color=Year, group=1,text=Day))+
+            geom_step()+
+            scale_x_continuous(breaks=seq(0,days,15),
+                             labels=format(seq.Date(firstDate,firstDate+days,by="15 days"),"%m-%d"))+
+            scale_color_manual(name="Year",values = getPalette(colourCount))+
+            xlab("Day of Year")+
+            ylab("Inches")+
+            ggtitle(paste0("Cumulative Daily Precipitation ",min(tempDailyLong$origYear),"-",max(tempDailyLong$origYear)))+
+            theme_bw()
+        # fix y axis to lim to period of days, add date sequence to x axis
+        p <- ggplotly(p)
+      })
+
+      # dot plot histogram
+      tempSeasTotal<-subset(tempDailyLong, doy==days)
+      tempSeasTotal$percAvg<-round((tempSeasTotal$Precip/mean(tempSeasTotal$Precip, na.rm = T))*100,0)
+      # color ramp
+      colourCount = length(unique(tempSeasTotal$Year))
+      getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+      # Transform a litte bit the dataset to make dots
+      tempSeasTotal = tempSeasTotal %>%
+        arrange(Precip) %>% # sort using the numeric variable that interest you
+        mutate(var_rounded = (Precip+1) - ( (Precip+1) %% 1 ) ) %>% # This attributes a bin to each observation. Here 0.2 is the size of the bin.
+        mutate(y=ave(var_rounded, var_rounded, FUN=seq_along)) # This calculates the position on the Y axis: 1, 2, 3, 4...
+      # add in text
+      tempSeasTotal=tempSeasTotal %>% mutate(text=paste("Year: ", Year, "\n", "Precip (in): ", Precip,"\n","% of Avg: ",percAvg,sep="" ))
+
+      # Improve the plot, and make it interactive
+      #tempSeasTotal=tempSeasTotal %>% mutate(text=paste("Year: ", rownames(iris), "\n", "Sepal Length: ", Sepal.Length, "\n", "Species:: ", Species, sep="" ))
+      output$dotplotChart<-renderPlotly({
+          p<-ggplot(tempSeasTotal, aes(x=var_rounded, y=y) ) +
+            geom_point( aes(text=text, color=Year), size=6) +
+            xlab('Total Precip (in)') +
+            ylab('# of Years') +
+            scale_color_manual(name="Year",values = getPalette(colourCount))+
+            # geom_vline(xintercept = mean(tempSeasTotal$Precip, na.rm = T), linetype="solid",
+            #            color = "black", size=0.5)+
+            # geom_text(aes(x=mean(tempSeasTotal$Precip, na.rm = T), 
+            #           label=paste0("Avg: ",round(mean(tempSeasTotal$Precip, na.rm = T),2)," in.\n"), 
+            #           y=max(tempSeasTotal$y, na.rm = T)-0.5), 
+            #           colour="black", nudge_x = 1, text=element_text(size=11)) +
+            # geom_vline(xintercept = mean(tempSeasTotal$Precip, na.rm = T)*0.5, linetype="dotted",
+            #            color = "black", size=0.5)+
+            # geom_vline(xintercept = mean(tempSeasTotal$Precip, na.rm = T)*1.5, linetype="dotted",
+            #            color = "black", size=0.5)+
+            ggtitle(paste0("Seasonal Total Precipitation ",min(tempDailyLong$origYear),"-",max(tempDailyLong$origYear)))+
+            theme_classic() +
+            theme(
+              legend.position="none",
+              axis.line.y = element_blank(),
+              axis.text=element_text(size=15)
+            )
+          p<-ggplotly(p, tooltip="text")
+      })
+      
+      # END NEW ############
       
       # add in single year....does not quite work...
       selectYr<-2012+1
