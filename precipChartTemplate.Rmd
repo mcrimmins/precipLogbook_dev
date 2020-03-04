@@ -1,0 +1,92 @@
+---
+title: ""
+output:
+  html_document:
+    css: custom.css
+---
+<h2>Precipitation Logbook</h2>
+
+```{r, fig.width=8, fig.height=6, echo=FALSE, warning=FALSE}
+       p<-ggplot(dayQuantLong, aes(date,value))+
+         geom_line(aes(linetype=variable), size=1)+
+         #geom_area(aes(color=variable))+
+         scale_x_datetime(labels = date_format("%m/%d"), breaks=date_breaks(
+           ifelse(days<180,"1 weeks","1 months")),
+                          limits = as.POSIXct(c(dayQuant$date[1],dayQuant$date[days])),expand=c(0,0))+
+         #ylim(0,ceiling(dayQuant$q98[match(endDate, dayQuant$date)]))+
+         scale_y_continuous(breaks=seq(0, ceiling(dayQuant$q98[match(days, dayQuant$doy)]),1),
+                            minor_breaks=seq(0, 13, 0.5),
+                            limits=c(0,ceiling(dayQuant$q98[match(days, dayQuant$doy)])),
+                            expand=c(0,0))+
+         scale_linetype_manual(values=c("dotted", "twodash","solid","twodash","dotted"))+
+         labs(title=gaugeTitle,x="Day of year",y="cumulative precip (in)")+
+         annotate("text", label = "Very Wet", x = as.POSIXct(dayQuant$date[days-(days*0.05)]), y = (dayQuant$q98[days-(days*0.05)]+dayQuant$q84[days-(days*0.05)])/2, fontface = 3)+
+         annotate("text", label = "Wet", x = as.POSIXct(dayQuant$date[days-(days*0.05)]), y = (dayQuant$q84[days-(days*0.05)]+dayQuant$q50[days-(days*0.05)])/2, fontface = 3)+
+         annotate("text", label = "Dry", x = as.POSIXct(dayQuant$date[days-(days*0.05)]), y = (dayQuant$q50[days-(days*0.05)]+dayQuant$q16[days-(days*0.05)])/2, fontface = 3)+
+         annotate("text", label = "Very Dry", x = as.POSIXct(dayQuant$date[days-(days*0.05)]), y = (dayQuant$q16[days-(days*0.05)]+dayQuant$q02[days-(days*0.05)])/2, fontface = 3)+
+       
+         annotate("text", label = "98th", x = as.POSIXct(dayQuant$date[days-(days*0.02)]), y = dayQuant$q98[days]+(0.01*dayQuant$q98[days]), size=3)+
+         annotate("text", label = "84th", x = as.POSIXct(dayQuant$date[days-(days*0.02)]), y = dayQuant$q84[days]+(0.01*dayQuant$q98[days]), size=3)+
+         annotate("text", label = "50th", x = as.POSIXct(dayQuant$date[days-(days*0.02)]), y = dayQuant$q50[days]+(0.01*dayQuant$q98[days]), size=3)+
+         annotate("text", label = "16th", x = as.POSIXct(dayQuant$date[days-(days*0.02)]), y = dayQuant$q16[days]+(0.01*dayQuant$q98[days]), size=3)+
+         annotate("text", label = "2nd",  x = as.POSIXct(dayQuant$date[days-(days*0.02)]), y = dayQuant$q02[days]+(0.01*dayQuant$q98[days]), size=3)
+                
+       p+  theme_bw(base_size = 12, base_family = "")+
+         theme(legend.position="none")+
+         theme(panel.grid.major = element_line(size = 0.5, color="grey"))+
+         theme(panel.grid.minor = element_line(size = 0.5, color="grey", linetype = "dotted"))
+```
+
+<em>Daily Precipitation Data (1981-2015) from PRISM Climate Group, http://prism.oregonstate.edu/ </em>
+
+
+|**Site Name:** `r gaugeTitle`  | **Data grid cell**                |
+|:-----------------------------:|:---------------------------------:|
+|**Latitude:** `r lat`          | **Latitude:** `r gridLat`         |
+|**Longitude:** `r lon`         | **Longitude:** `r gridLon`        |
+|**Elevation (ft):** `r locElev`| **Elevation (ft):** `r gridElev`  |  
+
+
+*****
+  
+#### Cumulative precipitation observation log with percentile thresholds (all values in inches)  
+```{r, echo=FALSE, warning=FALSE, results='asis'}
+print(xtable::xtable(tempTable),
+      type="html",html.table.attributes = "border=1",include.rownames = F)
+```
+  
+*****
+#### Notes
+
+```{r, echo=FALSE, warning=FALSE, results='asis'}
+
+df <- data.frame(matrix(ncol = 2, nrow = 30))
+for (i in 1:30){
+  df[i,1]<-str_pad("/", 75, "right")
+  df[i,2]<-str_pad(".", 100, "right")
+}
+colnames(df) <- c("Date","Note date and description of local conditions (forage, water, drought impacts)")
+print(xtable::xtable(df),
+      type="html",html.table.attributes = "border=1",include.rownames = F)
+
+```
+
+<!-- regular html comment -->   
+
+*****
+This chart was produced by the Reference Cumulative Precipitation Chart Generator found at:
+https://uaclimateextension.shinyapps.io/precipChart/
+
+*****
+
+<div align="center">
+  <img src="cals.jpg" height="63px" width="152px" />
+            
+  <img src="climas.png" height="63px" width="63px" />
+  <p> </p>
+  <p>http://cals.arizona.edu/climate</p>
+</div>
+
+
+
+
